@@ -3,7 +3,8 @@ import os
 from uuid import uuid4
 import datetime
 
-from fastapi import UploadFile, File
+from core.config import settings
+from fastapi import UploadFile, Request, File
 from langchain_community.document_loaders import Docx2txtLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_pinecone import PineconeVectorStore
@@ -16,10 +17,12 @@ from core.derived_tools import (
     derive_company_tenure_from_text,
 )
 
+from core.db import save_chat_log
+
 splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=150)
 
 
-def get_chat(req: ChatReq):
+def get_chat(req: ChatReq, request: Request):
     index = pc.Index("portfolio-chat")
     vs = PineconeVectorStore(
         index=index,
@@ -27,7 +30,8 @@ def get_chat(req: ChatReq):
         namespace="portfolio-namespace"
     )
 
-    top_k = min(req.top_k or 3, 4)
+    # top_k = min(req.top_k or 3, 4)
+    top_k = req.top_k
 
     # 1. 검색
     results = vs.similarity_search_with_score(req.question, k=top_k)
@@ -55,75 +59,7 @@ def get_chat(req: ChatReq):
         })
 
     context_text = "\n\n".join(context_blocks)
-    q = req.question.lower()
-
-    # # 3. 계산 질문이면 바로 처리
-    # if "나이" in q or "몇 살" in q or "만 나이" in q:
-    #     answer, note = derive_age_from_text(context_text)
-    #     if answer:
-    #         return {
-    #             "answer": answer,
-    #             "sources": sources + [{
-    #                 "source": "computed",
-    #                 "chunk": None,
-    #                 "score": None,
-    #                 "snippet": note
-    #             }]
-    #         }
-
-    # elif "총 경력" in q or "전체 경력" in q or "경력 합산" in q:
-    #     answer, note = derive_total_experience_from_text(context_text)
-    #     if answer:
-    #         return {
-    #             "answer": answer,
-    #             "sources": sources + [{
-    #                 "source": "computed",
-    #                 "chunk": None,
-    #                 "score": None,
-    #                 "snippet": note
-    #             }]
-    #         }
-
-    # elif ("근무 기간" in q or "재직 기간" in q):
-    #     if "엘리엇" in req.question:
-    #         answer, note = derive_company_tenure_from_text(context_text, "엘리엇")
-    #         if answer:
-    #             return {
-    #                 "answer": answer,
-    #                 "sources": sources + [{
-    #                     "source": "computed",
-    #                     "chunk": None,
-    #                     "score": None,
-    #                     "snippet": note
-    #                 }]
-    #             }
-
-    #     elif "모비루스" in req.question:
-    #         answer, note = derive_company_tenure_from_text(context_text, "모비루스")
-    #         if answer:
-    #             return {
-    #                 "answer": answer,
-    #                 "sources": sources + [{
-    #                     "source": "computed",
-    #                     "chunk": None,
-    #                     "score": None,
-    #                     "snippet": note
-    #                 }]
-    #             }
-
-    #     elif "WBS" in req.question or "더블유비에스" in req.question:
-    #         answer, note = derive_company_tenure_from_text(context_text, "WBS")
-    #         if answer:
-    #             return {
-    #                 "answer": answer,
-    #                 "sources": sources + [{
-    #                     "source": "computed",
-    #                     "chunk": None,
-    #                     "score": None,
-    #                     "snippet": note
-    #                 }]
-    #             }
-    print("answer llm")
+    
     today = datetime.date.today()
     # 4. 일반 질문이면 LLM으로 답변
     system = (
@@ -134,11 +70,23 @@ def get_chat(req: ChatReq):
         "3) CONTEXT에 정보가 부족하면, 부족하다고 짧게 말한 뒤 일반적인 설명을 덧붙여도 된다.\n"
         "4) 하지만 문서에 없는 사실을 단정해서 말하지 마라.\n"
         "5) 답변은 자연스럽고 이해하기 쉽게 작성해라.\n"
-        "6) 답변할때 CONTEXT라는 단어를 쓰지마라, 답변을 하기엔 정보가 부족하다는 식으로 말해라"
+        "6) 답변할때 CONTEXT라는 단어를 쓰지마라, 답변을 하기엔 정보가 부족하다는 식으로 말해라.\n"
+        "7) 총 경력기간을 계산을 할 때 개월수로 먼저 합산 후 1년이 넘을경우 몇년 몇개월로 표시해라, 그리고 정확하게 계산해라."
     )
 
     prompt = "CONTEXT:\n\n" + context_text + f"\n\n질문: {req.question}"
     answer = llm.invoke([("system", system), ("human", prompt)]).content
+    visitor_id = request.headers.get("x-visitor-id")
+    user_agent = request.headers.get("user-agent")
+
+    save_chat_log(
+        database_url=settings.DATABASE_URL,
+        visitor_id=visitor_id,
+        user_agent=user_agent,
+        question=req.question,
+        answer=answer,
+        model=settings.OPENAI_MODEL
+    )
 
     return {
         "answer": answer,

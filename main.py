@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
+
 # 라우터 가져오기
 from routers import chat
 
@@ -10,9 +12,12 @@ from routers import chat
 # ------------------------------------------------------------
 app = FastAPI(title="Docx RAG MVP")
 
+origins = os.getenv("ALLOWED_ORIGINS","").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins if origins != [""] else ["http://localhost:5173"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

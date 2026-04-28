@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     TOP_K: int = 5
     DIST_THRESHOLD: float = 999.0
 
+    DATABASE_URL: str | None = None
+
     model_config = ConfigDict(env_file=".env", extra="ignore")
  
 
