@@ -11,11 +11,6 @@ from langchain_pinecone import PineconeVectorStore
 
 from schemas.chat import ChatReq
 from core.util import llm, pc, embeddings
-from core.derived_tools import (
-    derive_age_from_text,
-    derive_total_experience_from_text,
-    derive_company_tenure_from_text,
-)
 
 from core.db import save_chat_log
 
@@ -71,7 +66,7 @@ def get_chat(req: ChatReq, request: Request):
         "4) 하지만 문서에 없는 사실을 단정해서 말하지 마라.\n"
         "5) 답변은 자연스럽고 이해하기 쉽게 작성해라.\n"
         "6) 답변할때 CONTEXT라는 단어를 쓰지마라, 답변을 하기엔 정보가 부족하다는 식으로 말해라.\n"
-        "7) 총 경력기간을 계산을 할 때 개월수로 먼저 합산 후 1년이 넘을경우 몇년 몇개월로 표시해라, 그리고 정확하게 계산해라."
+        # "7) 총 경력기간을 계산을 할 때 개월수로 먼저 합산 후 1년이 넘을경우 몇년 몇개월로 표시해라, 그리고 정확하게 계산해라."
     )
 
     prompt = "CONTEXT:\n\n" + context_text + f"\n\n질문: {req.question}"
@@ -111,6 +106,8 @@ async def ingest_docx(file: UploadFile = File(...)):
         d.metadata = {**d.metadata, "source": file.filename, "chunk": i}
 
     index = pc.Index("portfolio-chat")
+    # 기존에 있던 데이터 삭제 후 다시 저장
+    index.delete(delete_all=True, namespace='portfolio-namespace')
     vs = PineconeVectorStore(
         index=index,
         embedding=embeddings,
